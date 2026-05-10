@@ -1,10 +1,12 @@
+mod config;
+mod layers;
+mod routing;
+
+use hyper_util::rt::TokioIo;
 use std::net::SocketAddr;
 use tokio::net::TcpListener;
 
 use anyhow::Result;
-use matchit::Router;
-
-mod layers;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -16,13 +18,7 @@ async fn main() -> Result<()> {
     println!("🚀 Server listening on http://{}", addr);
 
     loop {
-        let (stream, _) = listener.accept().await?;
+        let (stream, address) = listener.accept().await?;
+        let io = TokioIo::new(stream);
     }
-}
-
-fn router_gen() -> Result<Router<i32>> {
-    let mut router = Router::new();
-    router.insert("/users/{id}", 42)?;
-    let matched = router.at("/users/1")?;
-    return Ok(router);
 }
