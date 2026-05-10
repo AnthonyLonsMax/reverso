@@ -1,6 +1,7 @@
 mod layers;
+mod routing;
 
-use crate::layers::Logger;
+use crate::layers::logger::Logger;
 use std::{convert::Infallible, net::SocketAddr};
 
 use hyper::{
@@ -28,6 +29,7 @@ async fn main() -> Result<()> {
         Err(err) => panic!("error creating the tcp listener {}", err),
     };
     println!("🚀 Server listening on http://{}", addr);
+    let mut router = routing::RouterService::new();
 
     loop {
         let (stream, _) = listener.accept().await?;
