@@ -1,54 +1,45 @@
-mod config;
-mod handlers;
 mod layers;
-mod routing;
+
+use crate::layers::Logger;
+use std::{convert::Infallible, net::SocketAddr};
+
+use hyper::{
+    Request, Response,
+    body::{Bytes, Incoming},
+    server::conn::http1,
+};
+
+use http_body_util::Full;
+use hyper_util::{rt::TokioIo, service::TowerToHyperService};
+use tokio::net::TcpListener;
+use tower::ServiceBuilder;
 
 use anyhow::Result;
-use hyper_util::rt::TokioIo;
-use std::net::SocketAddr;
-use tokio::net::TcpListener;
 
-use handlers::{HelloWorldHandler, UpstreamProxyHandler};
-use routing::{Handler, ServiceRoute};
+async fn hello(_: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
+    Ok(Response::new(Full::new(Bytes::from("Hello, World!"))))
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let mut router = ServiceRoute::new();
-
-    router
-        .add_route("/", "hello")
-        .add_route("/health", "hello")
-        .add_handler("hello", HelloWorldHandler);
-
-    router.add_route("/api/{rest...}", "proxy").add_handler(
-        "proxy",
-        UpstreamProxyHandler {
-            target: "http://localhost:8080".parse().unwrap(),
-            client: hyper_util::client::legacy::Client::builder(
-                hyper_util::rt::TokioExecutor::new(),
-            )
-            .build(hyper_util::client::legacy::connect::HttpConnector::new()),
-        },
-    );
-
-    let service = router.build();
-
     let addr: SocketAddr = ([127, 0, 0, 1], 3000).into();
-    let listener = TcpListener::bind(addr).await?;
+    let listener = match TcpListener::bind(addr).await {
+        Ok(listener) => listener,
+        Err(err) => panic!("error creating the tcp listener {}", err),
+    };
     println!("🚀 Server listening on http://{}", addr);
 
     loop {
-        let (stream, peer_addr) = listener.accept().await?;
-        let io = TokioIo::new(stream);
-        let service = service.clone();
+        let (stream, _) = listener.accept().await?;
 
-        tokio::spawn(async move {
-            if let Err(err) = hyper::server::conn::http1::Builder::new()
-                .serve_connection(io, service)
-                .with_upgrades() // Permite WebSocket/HTTP2 upgrade
-                .await
-            {
-                eprintln!("❌ Error serving connection from {}: {:?}", peer_addr, err);
+        let io = TokioIo::new(stream);
+
+        tokio::task::spawn(async move {
+            let svc = tower::service_fn(hello);
+            let svc = ServiceBuilder::new().layer_fn(Logger::new).service(svc);
+            let svc = TowerToHyperService::new(svc);
+            if let Err(err) = http1::Builder::new().serve_connection(io, svc).await {
+                eprintln!("server error: {}", err);
             }
         });
     }
