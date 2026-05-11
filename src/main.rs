@@ -1,46 +1,81 @@
 mod layers;
 mod routing;
 
-use crate::layers::logger::Logger;
-use std::{convert::Infallible, net::SocketAddr};
+use std::net::SocketAddr;
 
-use hyper::{
-    Request, Response,
-    body::{Bytes, Incoming},
-    server::conn::http1,
-};
-
-use http_body_util::Full;
+use anyhow::Result;
+use bytes::Bytes as BytesType;
+use http_body_util::{BodyExt, Full};
+use hyper::{Response, body::Bytes};
 use hyper_util::{rt::TokioIo, service::TowerToHyperService};
 use tokio::net::TcpListener;
 use tower::ServiceBuilder;
+use tower::service_fn;
 
-use anyhow::Result;
+use crate::{layers::logger::Logger, routing::ProxyRouterService};
 
-async fn hello(_: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
-    Ok(Response::new(Full::new(Bytes::from("Hello, World!"))))
+pub type ProxyError = Box<dyn std::error::Error + Send + Sync>;
+pub type ProxyResponse = Response<http_body_util::combinators::BoxBody<BytesType, ProxyError>>;
+
+async fn hello(_: hyper::Request<hyper::body::Incoming>) -> Result<ProxyResponse, ProxyError> {
+    let body = Full::new(Bytes::from("Hello, World!"))
+        .map_err(|e| Box::new(e) as ProxyError)
+        .boxed();
+
+    Ok(Response::new(body))
+}
+
+async fn users_handler(
+    _: hyper::Request<hyper::body::Incoming>,
+) -> Result<ProxyResponse, ProxyError> {
+    let json = r#"{"users":["alice","bob"]}"#;
+    let body = Full::new(Bytes::from(json))
+        .map_err(|e| Box::new(e) as ProxyError)
+        .boxed();
+
+    Response::builder()
+        .header("content-type", "application/json")
+        .body(body)
+        .map_err(|e| Box::new(e) as ProxyError)
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let addr: SocketAddr = ([127, 0, 0, 1], 3000).into();
-    let listener = match TcpListener::bind(addr).await {
-        Ok(listener) => listener,
-        Err(err) => panic!("error creating the tcp listener {}", err),
-    };
+    let listener = TcpListener::bind(addr).await?;
     println!("🚀 Server listening on http://{}", addr);
-    let mut router = routing::RouterService::new();
+
+    // ✅ 1. Crear y configurar el router UNA SOLA VEZ al inicio
+    let mut router = ProxyRouterService::new();
+
+    // Registrar handlers con BoxCloneService para que sean clonables
+    router.proxy(
+        "/users".to_string(),
+        "/api/users".to_string(),
+        tower::util::BoxCloneService::new(service_fn(users_handler)),
+    );
+
+    router.proxy(
+        "/hello".to_string(),
+        "/api/hello".to_string(),
+        tower::util::BoxCloneService::new(service_fn(hello)),
+    );
+
+    let service = ServiceBuilder::new().layer_fn(Logger::new).service(router);
+
+    let hyper_service = TowerToHyperService::new(service);
 
     loop {
         let (stream, _) = listener.accept().await?;
-
         let io = TokioIo::new(stream);
 
+        let svc = hyper_service.clone();
+
         tokio::task::spawn(async move {
-            let svc = tower::service_fn(hello);
-            let svc = ServiceBuilder::new().layer_fn(Logger::new).service(svc);
-            let svc = TowerToHyperService::new(svc);
-            if let Err(err) = http1::Builder::new().serve_connection(io, svc).await {
+            if let Err(err) = hyper::server::conn::http1::Builder::new()
+                .serve_connection(io, svc)
+                .await
+            {
                 eprintln!("server error: {}", err);
             }
         });

@@ -1,37 +1,54 @@
+// layers/logger.rs
 use hyper::{Request, body::Incoming};
+use std::{
+    future::Future,
+    pin::Pin,
+    task::{Context, Poll},
+};
 use tower::Service;
 
-#[derive(Debug, Clone)]
+// ✅ Logger especializado para hyper::Request<Incoming>
+// Ya no es genérico sobre Req, así que podemos llamar a .uri() directamente
+#[derive(Clone)]
 pub struct Logger<S> {
     inner: S,
 }
+
 impl<S> Logger<S> {
     pub fn new(inner: S) -> Self {
-        Logger { inner }
+        Self { inner }
     }
 }
 
-type Req = Request<Incoming>;
-
-impl<S> Service<Req> for Logger<S>
+impl<S, Res, Err> Service<Request<Incoming>> for Logger<S>
 where
-    S: Service<Req> + Clone,
+    S: Service<Request<Incoming>, Response = Res, Error = Err> + Send + 'static,
+    Err: std::fmt::Debug + Send + 'static,
+    Res: Send + 'static,
 {
-    type Response = S::Response;
+    type Response = Res;
+    type Error = Err;
+    type Future = Pin<Box<dyn Future<Output = Result<Res, Err>> + Send>>;
 
-    type Error = S::Error;
-
-    type Future = S::Future;
-
-    fn poll_ready(
-        &mut self,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<(), Self::Error>> {
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.inner.poll_ready(cx)
     }
 
-    fn call(&mut self, req: Req) -> Self::Future {
-        println!("processing request: {} {}", req.method(), req.uri().path());
-        self.inner.call(req)
+    fn call(&mut self, req: Request<Incoming>) -> Self::Future {
+        // ✅ Ahora req es Request<Incoming>, podemos llamar a .uri()
+        let path = req.uri().path().to_owned();
+        let method = req.method().as_str().to_owned();
+        println!(
+            "📝 [LOG] {} {} @ {}",
+            method,
+            path,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis()
+        );
+
+        let future = self.inner.call(req);
+        Box::pin(async move { future.await })
     }
 }
