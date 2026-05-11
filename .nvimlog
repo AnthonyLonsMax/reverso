@@ -1,7 +1,0 @@
-WRN 2026-05-11T13:50:42.092 nvim.26624.0 vim_mktempdir:3325: tempdir create failed: read-only file system: /tmp/nvim.k8s/XXXXXX
-ERR 2026-05-11T13:50:42.093 nvim.26624.0 vim_mktempdir:3313: tempdir root has invalid permissions (40777): ./nvim.k8s
-WRN 2026-05-11T14:00:35.295 nvim.28608.0 vim_mktempdir:3325: tempdir create failed: read-only file system: /tmp/nvim.k8s/XXXXXX
-ERR 2026-05-11T14:00:35.296 nvim.28608.0 vim_mktempdir:3313: tempdir root has invalid permissions (40777): ./nvim.k8s
-ERR 2026-05-11T14:00:44.991 nvim.28608.0 vim_gettempdir:3480: tempdir disappeared (antivirus or broken cleanup job?): /media/k8s/D/Projects/rust/reverso/nvim.eiIa29/
-WRN 2026-05-11T14:00:44.991 nvim.28608.0 vim_mktempdir:3325: tempdir create failed: read-only file system: /tmp/nvim.k8s/XXXXXX
-ERR 2026-05-11T14:00:44.993 nvim.28608.0 vim_mktempdir:3313: tempdir root has invalid permissions (40777): ./nvim.k8s
