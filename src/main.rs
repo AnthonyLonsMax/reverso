@@ -1,35 +1,12 @@
-mod layers;
-mod routing;
+use std::{error::Error, pin::Pin};
 
-use crate::layers::logger::Logger;
-use std::{convert::Infallible, net::SocketAddr};
-
-use hyper::{
-    Request, Response,
-    body::{Bytes, Incoming},
-    server::conn::http1,
-};
-
-use http_body_util::Full;
-use hyper_util::{rt::TokioIo, service::TowerToHyperService};
+use hyper::{Request, Response, body::Incoming, server::conn::http1, service::Service};
+use hyper_util::rt::TokioIo;
 use tokio::net::TcpListener;
-use tower::ServiceBuilder;
-
-use anyhow::Result;
-
-async fn hello(_: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
-    Ok(Response::new(Full::new(Bytes::from("Hello, World!"))))
-}
 
 #[tokio::main]
-async fn main() -> Result<()> {
-    let addr: SocketAddr = ([127, 0, 0, 1], 3000).into();
-    let listener = match TcpListener::bind(addr).await {
-        Ok(listener) => listener,
-        Err(err) => panic!("error creating the tcp listener {}", err),
-    };
-    println!("🚀 Server listening on http://{}", addr);
-    let mut router = routing::RouterService::new();
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let listener = TcpListener::bind("127.0.0.1:8080").await?;
 
     loop {
         let (stream, _) = listener.accept().await?;
@@ -37,12 +14,39 @@ async fn main() -> Result<()> {
         let io = TokioIo::new(stream);
 
         tokio::task::spawn(async move {
-            let svc = tower::service_fn(hello);
-            let svc = ServiceBuilder::new().layer_fn(Logger::new).service(svc);
-            let svc = TowerToHyperService::new(svc);
-            if let Err(err) = http1::Builder::new().serve_connection(io, svc).await {
-                eprintln!("server error: {}", err);
-            }
+            if let Err(err) = http1::Builder::new().serve_connection(io, Hello).await {
+                println!("error creating the request service handler {err}")
+            };
         });
+    }
+}
+
+struct Hello;
+
+#[derive(Debug)]
+struct HelloErr;
+
+impl std::fmt::Display for HelloErr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "you got and hello error")
+    }
+}
+
+impl Error for HelloErr {}
+
+impl Service<Request<Incoming>> for Hello {
+    type Response = Response<String>;
+    type Error = Box<dyn std::error::Error + Send + Sync + 'static>;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+
+    fn call(&self, _req: Request<Incoming>) -> Self::Future {
+        Box::pin(async move {
+            let response = Response::builder()
+                .status(200)
+                .body(String::from("Hello response"))
+                .map_err(|_e| Box::new(HelloErr))
+                .unwrap();
+            Ok(response)
+        })
     }
 }
