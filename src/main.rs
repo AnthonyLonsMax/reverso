@@ -1,4 +1,4 @@
-use std::{error::Error, pin::Pin};
+use std::pin::Pin;
 
 use hyper::{Request, Response, body::Incoming, server::conn::http1, service::Service};
 use hyper_util::rt::TokioIo;
@@ -21,22 +21,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
-struct Hello;
-
-#[derive(Debug)]
-struct HelloErr;
-
-impl std::fmt::Display for HelloErr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "you got and hello error")
-    }
-}
-
-impl Error for HelloErr {}
+pub struct Hello;
 
 impl Service<Request<Incoming>> for Hello {
     type Response = Response<String>;
-    type Error = Box<dyn std::error::Error + Send + Sync + 'static>;
+    type Error = Box<dyn std::error::Error + Send + Sync>;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
     fn call(&self, _req: Request<Incoming>) -> Self::Future {
@@ -44,7 +33,7 @@ impl Service<Request<Incoming>> for Hello {
             let response = Response::builder()
                 .status(200)
                 .body(String::from("Hello response"))
-                .map_err(|_e| Box::new(HelloErr))
+                .map_err(|e| Box::new(e))
                 .unwrap();
             Ok(response)
         })
