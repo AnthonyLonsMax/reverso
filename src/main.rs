@@ -30,12 +30,11 @@ impl Service<Request<Incoming>> for Hello {
 
     fn call(&self, _req: Request<Incoming>) -> Self::Future {
         Box::pin(async move {
-            let response = Response::builder()
+            Ok(Response::builder()
                 .status(200)
                 .body(String::from("Hello response"))
                 .map_err(|e| Box::new(e))
-                .unwrap();
-            Ok(response)
+                .unwrap())
         })
     }
 }
